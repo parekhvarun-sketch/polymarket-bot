@@ -77,7 +77,7 @@ class PolymarketTrader:
     def place_market_order(self, token_id: str, amount: float, side: str = "BUY") -> dict:
         """Place order via Relayer API - bypasses CLOB geoblock."""
         try:
-            url = "https://relayer-api.polymarket.com/submit-order"
+            url = f"{CLOB_API}/order"
             order_data = {
                 "tokenId": token_id,
                 "side": side,
