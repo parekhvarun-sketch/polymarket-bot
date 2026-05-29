@@ -1,5 +1,5 @@
 # ============================================================
-# TRADER - Handles all Polymarket API calls via Relayer
+# TRADER - Handles all Polymarket API calls
 # ============================================================
 
 import requests
@@ -14,7 +14,6 @@ from config import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TRADER")
 
-RELAYER_API = "https://clob.polymarket.com"
 
 class PolymarketTrader:
     def __init__(self):
@@ -29,29 +28,11 @@ class PolymarketTrader:
         self.trades_placed = 0
         self.wins = 0
         self.losses = 0
-        logger.info(f"✅ Trader initialized with balance: ${self.balance}")
 
     def get_balance(self) -> float:
-        """Get balance via Relayer API - no geoblock."""
-        try:
-            url = f"{RELAYER_API}/balance"
-            headers = {
-                "RELAYER_API_KEY": RELAYER_API_KEY,
-                "RELAYER_API_KEY_ADDRESS": RELAYER_API_KEY_ADDRESS
-            }
-            response = self.session.get(url, headers=headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                balance = float(data.get("balance", 0))
-                if balance > 0:
-                    self.balance = balance
-                    return balance
-        except Exception as e:
-            logger.error(f"Error getting balance: {e}")
         return self.balance
 
     def get_sports_markets(self) -> list:
-        """Fetch markets - Gamma API has no geoblock."""
         all_markets = []
         try:
             for category in FOCUS_CATEGORIES:
@@ -94,21 +75,16 @@ class PolymarketTrader:
             return []
 
     def place_market_order(self, token_id: str, amount: float, side: str = "BUY") -> dict:
-        """Place order via Relayer API - bypasses geoblock."""
+        """Place order via Relayer API - bypasses CLOB geoblock."""
         try:
-            url = f"{RELAYER_API}/order"
+            url = "https://relayer-api.polymarket.com/submit-order"
             order_data = {
                 "tokenId": token_id,
                 "side": side,
-                "amount": str(amount),
+                "amount": amount,
                 "type": "MARKET"
             }
-            headers = {
-                "Content-Type": "application/json",
-                "RELAYER_API_KEY": RELAYER_API_KEY,
-                "RELAYER_API_KEY_ADDRESS": RELAYER_API_KEY_ADDRESS
-            }
-            response = self.session.post(url, json=order_data, headers=headers, timeout=15)
+            response = self.session.post(url, json=order_data, timeout=15)
             if response.status_code == 200:
                 self.trades_placed += 1
                 logger.info(f"✅ Order placed: {side} ${amount}")
