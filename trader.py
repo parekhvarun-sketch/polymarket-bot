@@ -14,7 +14,7 @@ from config import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TRADER")
 
-RELAYER_API = "https://relayer.polymarket.com"
+RELAYER_API = "RELAYER_API = "https://clob.polymarket.com""
 
 class PolymarketTrader:
     def __init__(self):
