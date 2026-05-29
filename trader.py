@@ -9,7 +9,7 @@ import logging
 from config import (
     GAMMA_API, CLOB_API, DATA_API,
     RELAYER_API_KEY, RELAYER_API_KEY_ADDRESS,
-    FOCUS_CATEGORIES
+    FOCUS_CATEGORIES, PROXY_URL, STARTING_BALANCE
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -24,16 +24,23 @@ class PolymarketTrader:
             "RELAYER_API_KEY": RELAYER_API_KEY,
             "RELAYER_API_KEY_ADDRESS": RELAYER_API_KEY_ADDRESS
         })
-        self.balance = 0.0
+        # Use proxy to bypass georestriction
+        if PROXY_URL:
+            self.session.proxies = {
+                "http": PROXY_URL,
+                "https": PROXY_URL
+            }
+            logger.info(f"✅ Proxy configured: {PROXY_URL}")
+
+        self.balance = STARTING_BALANCE
         self.total_profit = 0.0
         self.trades_placed = 0
         self.wins = 0
         self.losses = 0
 
     def get_balance(self) -> float:
-        """Get current balance from Polymarket Data API."""
+        """Get current balance."""
         try:
-            # Method 1: Try Data API positions to estimate balance
             url = f"{DATA_API}/value"
             params = {"user": RELAYER_API_KEY_ADDRESS}
             response = self.session.get(url, params=params, timeout=10)
@@ -44,7 +51,6 @@ class PolymarketTrader:
                     self.balance = balance
                     return balance
 
-            # Method 2: Try CLOB balance endpoint with signature type 2
             url = f"{CLOB_API}/balance-allowance"
             params = {"asset_type": "USDC", "signature_type": 2}
             response = self.session.get(url, params=params, timeout=10)
@@ -55,20 +61,14 @@ class PolymarketTrader:
                     self.balance = balance
                     return balance
 
-            # Method 3: Use configured starting balance
-            from config import STARTING_BALANCE
-            if self.balance == 0:
-                self.balance = STARTING_BALANCE
             return self.balance
 
         except Exception as e:
             logger.error(f"Error getting balance: {e}")
-            from config import STARTING_BALANCE
-            self.balance = STARTING_BALANCE
             return self.balance
 
     def get_sports_markets(self) -> list:
-        """Fetch all active sports markets from Gamma API."""
+        """Fetch all active sports markets."""
         all_markets = []
         try:
             for category in FOCUS_CATEGORIES:
@@ -87,7 +87,6 @@ class PolymarketTrader:
                     logger.info(f"Found {len(markets)} {category} markets")
                 time.sleep(0.5)
 
-            # Also get trending/breaking markets
             url = f"{GAMMA_API}/markets"
             params = {"active": "true", "closed": "false", "limit": 200, "order": "volume24hr", "ascending": "false"}
             response = self.session.get(url, params=params, timeout=10)
@@ -96,7 +95,6 @@ class PolymarketTrader:
                 markets = data if isinstance(data, list) else data.get("markets", [])
                 all_markets.extend(markets)
 
-            # Remove duplicates
             seen = set()
             unique = []
             for m in all_markets:
@@ -113,32 +111,17 @@ class PolymarketTrader:
             return []
 
     def get_market_price(self, token_id: str) -> float:
-        """Get current best price for a token."""
         try:
             url = f"{CLOB_API}/price"
             params = {"token_id": token_id, "side": "buy"}
             response = self.session.get(url, params=params, timeout=10)
             if response.status_code == 200:
-                data = response.json()
-                return float(data.get("price", 0))
+                return float(response.json().get("price", 0))
         except Exception as e:
             logger.error(f"Error getting price: {e}")
         return 0.0
 
-    def get_orderbook(self, token_id: str) -> dict:
-        """Get full orderbook for a market."""
-        try:
-            url = f"{CLOB_API}/book"
-            params = {"token_id": token_id}
-            response = self.session.get(url, params=params, timeout=10)
-            if response.status_code == 200:
-                return response.json()
-        except Exception as e:
-            logger.error(f"Error getting orderbook: {e}")
-        return {}
-
     def place_market_order(self, token_id: str, amount: float, side: str = "BUY") -> dict:
-        """Place a market order via Relayer API."""
         try:
             url = f"{CLOB_API}/order"
             order_data = {
@@ -152,10 +135,9 @@ class PolymarketTrader:
             }
             response = self.session.post(url, json=order_data, timeout=15)
             if response.status_code == 200:
-                result = response.json()
                 self.trades_placed += 1
-                logger.info(f"✅ Order placed: {side} ${amount} on token {token_id[:8]}...")
-                return result
+                logger.info(f"✅ Order placed: {side} ${amount}")
+                return response.json()
             else:
                 logger.error(f"Order failed: {response.status_code} - {response.text}")
                 return {"error": response.text}
@@ -164,7 +146,6 @@ class PolymarketTrader:
             return {"error": str(e)}
 
     def get_positions(self) -> list:
-        """Get all current open positions."""
         try:
             url = f"{DATA_API}/positions"
             params = {"user": RELAYER_API_KEY_ADDRESS, "sizeThreshold": 0.01}
@@ -176,7 +157,6 @@ class PolymarketTrader:
         return []
 
     def get_trade_history(self) -> list:
-        """Get completed trades."""
         try:
             url = f"{DATA_API}/activity"
             params = {"user": RELAYER_API_KEY_ADDRESS, "limit": 50}
@@ -188,9 +168,8 @@ class PolymarketTrader:
         return []
 
     def get_top_trader_positions(self) -> list:
-        """Mirror top traders - sovereign2013 style."""
         top_traders = [
-            "0xee613b3fc183ee44f9da9c05f53e2da107e3debf",  # sovereign2013
+            "0xee613b3fc183ee44f9da9c05f53e2da107e3debf",
         ]
         signals = []
         try:
