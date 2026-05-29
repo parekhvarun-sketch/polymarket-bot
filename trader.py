@@ -30,9 +30,42 @@ class PolymarketTrader:
         self.wins = 0
         self.losses = 0
 
-    # ----------------------------------------------------------
-    # MARKET SCANNING
-    # ----------------------------------------------------------
+    def get_balance(self) -> float:
+        """Get current balance from Polymarket Data API."""
+        try:
+            # Method 1: Try Data API positions to estimate balance
+            url = f"{DATA_API}/value"
+            params = {"user": RELAYER_API_KEY_ADDRESS}
+            response = self.session.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                balance = float(data.get("portfolioValue", 0))
+                if balance > 0:
+                    self.balance = balance
+                    return balance
+
+            # Method 2: Try CLOB balance endpoint with signature type 2
+            url = f"{CLOB_API}/balance-allowance"
+            params = {"asset_type": "USDC", "signature_type": 2}
+            response = self.session.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                balance = float(data.get("balance", 0)) / 1e6
+                if balance > 0:
+                    self.balance = balance
+                    return balance
+
+            # Method 3: Use configured starting balance
+            from config import STARTING_BALANCE
+            if self.balance == 0:
+                self.balance = STARTING_BALANCE
+            return self.balance
+
+        except Exception as e:
+            logger.error(f"Error getting balance: {e}")
+            from config import STARTING_BALANCE
+            self.balance = STARTING_BALANCE
+            return self.balance
 
     def get_sports_markets(self) -> list:
         """Fetch all active sports markets from Gamma API."""
@@ -104,39 +137,16 @@ class PolymarketTrader:
             logger.error(f"Error getting orderbook: {e}")
         return {}
 
-    def get_balance(self) -> float:
-        """Get current USDC balance."""
-        try:
-            url = f"{CLOB_API}/balance-allowance"
-            params = {"asset_type": "USDC", "signature_type": 0}
-            response = self.session.get(url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                balance = float(data.get("balance", 0)) / 1e6  # Convert from micro
-                self.balance = balance
-                return balance
-        except Exception as e:
-            logger.error(f"Error getting balance: {e}")
-        return self.balance
-
-    # ----------------------------------------------------------
-    # ORDER PLACEMENT
-    # ----------------------------------------------------------
-
     def place_market_order(self, token_id: str, amount: float, side: str = "BUY") -> dict:
-        """
-        Place a market order via Relayer API.
-        side: BUY (betting YES) or SELL
-        amount: in USDC
-        """
+        """Place a market order via Relayer API."""
         try:
             url = f"{CLOB_API}/order"
             order_data = {
                 "order": {
                     "tokenId": token_id,
                     "side": side,
-                    "price": 0,  # Market order
-                    "size": str(int(amount * 1e6)),  # Convert to micro USDC
+                    "price": 0,
+                    "size": str(int(amount * 1e6)),
                     "type": "MARKET"
                 }
             }
@@ -149,7 +159,6 @@ class PolymarketTrader:
             else:
                 logger.error(f"Order failed: {response.status_code} - {response.text}")
                 return {"error": response.text}
-
         except Exception as e:
             logger.error(f"Error placing order: {e}")
             return {"error": str(e)}
@@ -178,14 +187,8 @@ class PolymarketTrader:
             logger.error(f"Error getting trade history: {e}")
         return []
 
-    # ----------------------------------------------------------
-    # TOP TRADER MIRRORING (sovereign2013 style)
-    # ----------------------------------------------------------
-
     def get_top_trader_positions(self) -> list:
-        """
-        Mirror top traders - watch what sovereign2013 and others are betting on.
-        """
+        """Mirror top traders - sovereign2013 style."""
         top_traders = [
             "0xee613b3fc183ee44f9da9c05f53e2da107e3debf",  # sovereign2013
         ]
